@@ -1,0 +1,6 @@
+{
+  "name": "FaceBeat Arcade",
+  "description": "API-free camera rhythm mini-game driven by mouth movement and head tilts with live Web Audio groove synthesis.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
