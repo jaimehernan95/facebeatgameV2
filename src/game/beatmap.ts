@@ -7,7 +7,7 @@ export const TRACKS: TrackConfig[] = [
     subtitle: 'Upbeat synth bass & crisp 4-on-the-floor groove',
     bpm: 112,
     accentColor: '#10B981',
-    rootMidi: 48, // C3
+    rootMidi: 48,
     scaleIntervals: [0, 3, 5, 7, 10, 12, 15, 17],
     progression: [
       [60, 63, 67, 70],
@@ -25,7 +25,7 @@ export const TRACKS: TrackConfig[] = [
     subtitle: 'High-energy chiptune arpeggios & punchy snare',
     bpm: 124,
     accentColor: '#38BDF8',
-    rootMidi: 45, // A2
+    rootMidi: 45,
     scaleIntervals: [0, 2, 3, 5, 7, 8, 10, 12],
     progression: [
       [57, 60, 64, 69],
@@ -43,7 +43,7 @@ export const TRACKS: TrackConfig[] = [
     subtitle: 'Warm electric piano chords & relaxed swing',
     bpm: 96,
     accentColor: '#F59E0B',
-    rootMidi: 50, // D3
+    rootMidi: 50,
     scaleIntervals: [0, 2, 4, 7, 9, 12, 14, 16],
     progression: [
       [62, 66, 69, 73],
@@ -93,35 +93,39 @@ export function generateBeatmapFromBpm(
   durationSec: number,
   customBeatTimes?: number[]
 ): BeatNote[] {
-  const safeBpm = Math.max(65, Math.min(175, bpm || 112));
+  const validBpm = Number.isFinite(bpm) && bpm > 0 ? bpm : 112;
+  const safeBpm = Math.max(65, Math.min(175, validBpm));
+  const safeDuration = Number.isFinite(durationSec) ? Math.max(6, Math.min(300, durationSec)) : 45;
   const beatDur = 60 / safeBpm;
+
   const diffOffset: Record<Difficulty, number> = {
     chill: 1,
     groove: 2,
     turbo: 3,
   };
-  const rng = createRng(hashString(sourceId) + diffOffset[difficulty] * 17 + durationSec);
+  const rng = createRng(hashString(sourceId || 'track') + diffOffset[difficulty] * 17 + safeDuration);
 
   const notes: BeatNote[] = [];
-  const endTime = durationSec - 1.4;
+  const endTime = safeDuration - 1.4;
 
+  // 4-lane musical phrase motifs
   const motifs: Lane[][] = [
-    ['MOUTH', 'LEFT', 'MOUTH', 'RIGHT'],
-    ['LEFT', 'MOUTH', 'RIGHT', 'MOUTH'],
-    ['MOUTH', 'MOUTH', 'LEFT', 'RIGHT'],
-    ['RIGHT', 'MOUTH', 'LEFT', 'MOUTH'],
+    ['MOUTH', 'LEFT', 'SMILE', 'RIGHT'],
+    ['LEFT', 'MOUTH', 'RIGHT', 'SMILE'],
+    ['MOUTH', 'SMILE', 'LEFT', 'RIGHT'],
+    ['RIGHT', 'SMILE', 'MOUTH', 'LEFT'],
   ];
 
   let lastLane: Lane = 'MOUTH';
   let lastTiltTime = -10;
   let noteIndex = 0;
 
-  // If real audio onset peaks were extracted from an uploaded file, weave them into the grid
   if (customBeatTimes && customBeatTimes.length > 6) {
+    const sortedTimes = [...customBeatTimes].filter((t) => Number.isFinite(t)).sort((a, b) => a - b);
     const minSpacing = difficulty === 'chill' ? 0.65 : difficulty === 'groove' ? 0.38 : 0.26;
     let lastSpawnedTime = 1.6;
 
-    for (const rawTime of customBeatTimes) {
+    for (const rawTime of sortedTimes) {
       if (rawTime < 1.8 || rawTime > endTime) continue;
       if (rawTime - lastSpawnedTime < minSpacing) continue;
 
@@ -129,12 +133,15 @@ export function generateBeatmapFromBpm(
       let lane: Lane = motif[noteIndex % motif.length];
       if (rng() > 0.68) {
         const r = rng();
-        lane = r < 0.45 ? 'MOUTH' : r < 0.725 ? 'LEFT' : 'RIGHT';
+        if (r < 0.32) lane = 'MOUTH';
+        else if (r < 0.58) lane = 'SMILE';
+        else if (r < 0.79) lane = 'LEFT';
+        else lane = 'RIGHT';
       }
 
       const minTiltCooldown = difficulty === 'turbo' ? 0.38 : 0.55;
       if ((lane === 'LEFT' || lane === 'RIGHT') && lane !== lastLane && rawTime - lastTiltTime < minTiltCooldown) {
-        lane = 'MOUTH';
+        lane = lastLane === 'MOUTH' ? 'SMILE' : 'MOUTH';
       }
       if (lane === 'LEFT' || lane === 'RIGHT') lastTiltTime = rawTime;
       lastLane = lane;
@@ -154,7 +161,6 @@ export function generateBeatmapFromBpm(
     return notes;
   }
 
-  // Standard BPM-locked musical phrase generator (Synth tracks & Spotify tracks)
   const startBeat = Math.ceil(2.0 / beatDur);
   const stepInBeats = difficulty === 'chill' ? 1 : 0.5;
   let beat = startBeat;
@@ -180,14 +186,15 @@ export function generateBeatmapFromBpm(
 
       if (!isWholeBeat || rng() > 0.72) {
         const roll = rng();
-        if (roll < 0.44) lane = 'MOUTH';
-        else if (roll < 0.72) lane = 'LEFT';
+        if (roll < 0.32) lane = 'MOUTH';
+        else if (roll < 0.58) lane = 'SMILE';
+        else if (roll < 0.79) lane = 'LEFT';
         else lane = 'RIGHT';
       }
 
       const minTiltCooldown = difficulty === 'turbo' ? 0.38 : 0.55;
       if ((lane === 'LEFT' || lane === 'RIGHT') && lane !== lastLane && time - lastTiltTime < minTiltCooldown) {
-        lane = 'MOUTH';
+        lane = lastLane === 'MOUTH' ? 'SMILE' : 'MOUTH';
       }
 
       if (lane === 'LEFT' || lane === 'RIGHT') {

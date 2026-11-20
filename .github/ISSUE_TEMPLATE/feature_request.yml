@@ -1,0 +1,30 @@
+name: Feature Request
+description: Propose a new expression lane, music integration, or gameplay enhancement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea to make FaceBeat Arcade even better? Maintainers respond within **<24 hours**.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or Opportunity
+      description: What gameplay or usability improvement are you looking for?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Solution
+      description: Describe how you envision this feature working.
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy & Zero-Key Compatibility
+      options:
+        - label: Works without requiring mandatory paid API keys or uploading user webcam video
+          required: false

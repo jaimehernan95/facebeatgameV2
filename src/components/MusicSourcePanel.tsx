@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Disc3, Link2, LogOut, Music, Search, Upload } from 'lucide-react';
+import { Disc3, Film, Heart, Link2, LogOut, Music, Search, Upload, Youtube } from 'lucide-react';
 import { grooveEngine } from '../audio/grooveEngine';
+import { parseTikTokId, parseYouTubeId } from '../game/mediaLinks';
 import {
+  ExternalMediaTrack,
+  FavoriteTrackMemory,
   MusicSource,
   SpotifyTrackOption,
   TrackConfig,
@@ -24,14 +27,22 @@ interface MusicSourcePanelProps {
   musicSource: MusicSource;
   tracks: TrackConfig[];
   selectedSynthId: TrackId;
+  selectedYoutubeTrack: ExternalMediaTrack | null;
+  selectedTiktokTrack: ExternalMediaTrack | null;
   selectedSpotifyTrack: SpotifyTrackOption | null;
   uploadedTrack: UploadedAudioTrack | null;
   customBpm: number;
+  favorites: FavoriteTrackMemory[];
+  currentTrackLiked: boolean;
   onSelectSource: (source: MusicSource) => void;
   onSelectSynth: (id: TrackId) => void;
+  onSelectYoutubeTrack: (track: ExternalMediaTrack) => void;
+  onSelectTiktokTrack: (track: ExternalMediaTrack) => void;
   onSelectSpotifyTrack: (track: SpotifyTrackOption) => void;
   onSelectUploadedTrack: (track: UploadedAudioTrack) => void;
   onChangeCustomBpm: (bpm: number) => void;
+  onToggleSaveCurrentTrack: () => void;
+  onLoadFavorite: (track: FavoriteTrackMemory) => void;
 }
 
 function extractSpotifyTrackId(input: string): string | null {
@@ -47,14 +58,22 @@ export const MusicSourcePanel: React.FC<MusicSourcePanelProps> = ({
   musicSource,
   tracks,
   selectedSynthId,
+  selectedYoutubeTrack,
+  selectedTiktokTrack,
   selectedSpotifyTrack,
   uploadedTrack,
   customBpm,
+  favorites,
+  currentTrackLiked,
   onSelectSource,
   onSelectSynth,
+  onSelectYoutubeTrack,
+  onSelectTiktokTrack,
   onSelectSpotifyTrack,
   onSelectUploadedTrack,
   onChangeCustomBpm,
+  onToggleSaveCurrentTrack,
+  onLoadFavorite,
 }) => {
   const [spotifyStatus, setSpotifyStatus] = useState<SpotifyStatusResponse | null>(null);
   const [authPopupUrl, setAuthPopupUrl] = useState<string | null>(null);
@@ -63,6 +82,15 @@ export const MusicSourcePanel: React.FC<MusicSourcePanelProps> = ({
   const [searchResults, setSearchResults] = useState<SpotifyTrackOption[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [spotifyLinkInput, setSpotifyLinkInput] = useState('');
+
+  const [youtubeInput, setYoutubeInput] = useState('');
+  const [youtubeLoading, setYoutubeLoading] = useState(false);
+  const [youtubeError, setYoutubeError] = useState<string | null>(null);
+
+  const [tiktokInput, setTiktokInput] = useState('');
+  const [tiktokLoading, setTiktokLoading] = useState(false);
+  const [tiktokError, setTiktokError] = useState<string | null>(null);
+
   const [isDecodingUpload, setIsDecodingUpload] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
@@ -83,7 +111,7 @@ export const MusicSourcePanel: React.FC<MusicSourcePanelProps> = ({
         }
       }
     } catch {
-      // Server status optional if running static build
+      // Optional server endpoint
     }
   }, []);
 
@@ -91,7 +119,6 @@ export const MusicSourcePanel: React.FC<MusicSourcePanelProps> = ({
     void fetchSpotifyStatus();
   }, [fetchSpotifyStatus]);
 
-  // Listen for OAuth popup completion via cross-origin postMessage
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       const origin = event.origin;
@@ -109,6 +136,86 @@ export const MusicSourcePanel: React.FC<MusicSourcePanelProps> = ({
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   }, [fetchSpotifyStatus]);
+
+  const handleLoadYouTube = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const id = parseYouTubeId(youtubeInput);
+    if (!id) {
+      setYoutubeError(
+        'Paste a valid YouTube or YouTube Music link (youtube.com/watch?v=..., music.youtube.com/..., or youtu.be/...).'
+      );
+      return;
+    }
+
+    setYoutubeError(null);
+    setYoutubeLoading(true);
+    let title = 'YouTube Music Track';
+    let author = 'YouTube';
+    let thumbnail = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+
+    try {
+      const res = await fetch(`/api/media/oembed?url=${encodeURIComponent(youtubeInput.trim())}`);
+      if (res.ok) {
+        const meta = (await res.json()) as { title?: string; author?: string; thumbnail?: string };
+        if (meta.title) title = meta.title;
+        if (meta.author) author = meta.author;
+        if (meta.thumbnail) thumbnail = meta.thumbnail;
+      }
+    } catch {
+      // Metadata lookup is optional; videoId still plays directly
+    } finally {
+      setYoutubeLoading(false);
+    }
+
+    onSelectYoutubeTrack({
+      provider: 'youtube',
+      id,
+      url: youtubeInput.trim(),
+      title,
+      author,
+      thumbnail,
+      bpm: customBpm,
+    });
+  };
+
+  const handleLoadTikTok = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const id = parseTikTokId(tiktokInput);
+    if (!id) {
+      setTiktokError('Paste a full TikTok video URL (e.g. https://www.tiktok.com/@user/video/1234567890).');
+      return;
+    }
+
+    setTiktokError(null);
+    setTiktokLoading(true);
+    let title = 'TikTok Sound';
+    let author = 'TikTok Creator';
+    let thumbnail = '';
+
+    try {
+      const res = await fetch(`/api/media/oembed?url=${encodeURIComponent(tiktokInput.trim())}`);
+      if (res.ok) {
+        const meta = (await res.json()) as { title?: string; author?: string; thumbnail?: string };
+        if (meta.title) title = meta.title;
+        if (meta.author) author = meta.author;
+        if (meta.thumbnail) thumbnail = meta.thumbnail;
+      }
+    } catch {
+      // Optional metadata
+    } finally {
+      setTiktokLoading(false);
+    }
+
+    onSelectTiktokTrack({
+      provider: 'tiktok',
+      id,
+      url: tiktokInput.trim(),
+      title,
+      author,
+      thumbnail,
+      bpm: customBpm,
+    });
+  };
 
   const handleConnectSpotify = async () => {
     setSpotifyError(null);
@@ -205,43 +312,67 @@ export const MusicSourcePanel: React.FC<MusicSourcePanelProps> = ({
 
   return (
     <div className="space-y-3">
-      {/* 3-Tab Source Selector */}
-      <div className="grid grid-cols-3 gap-1 p-1 bg-slate-900 border border-slate-800 rounded-lg">
+      {/* 5-Tab Source Selector */}
+      <div className="grid grid-cols-5 gap-1 p-1 bg-slate-900 border border-slate-800 rounded-lg">
         <button
           type="button"
           onClick={() => onSelectSource('synth')}
-          className={`inline-flex items-center justify-center gap-1.5 py-1.5 px-2 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+          className={`inline-flex items-center justify-center gap-1 py-1.5 px-1.5 text-[11px] sm:text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
             musicSource === 'synth'
               ? 'bg-emerald-500 text-slate-950'
               : 'text-slate-300 hover:text-white'
           }`}
         >
-          <Music className="w-3.5 h-3.5" />
-          <span>Free Synth</span>
+          <Music className="w-3.5 h-3.5 shrink-0" />
+          <span>Synth</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => onSelectSource('youtube')}
+          className={`inline-flex items-center justify-center gap-1 py-1.5 px-1.5 text-[11px] sm:text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+            musicSource === 'youtube'
+              ? 'bg-emerald-500 text-slate-950'
+              : 'text-slate-300 hover:text-white'
+          }`}
+        >
+          <Youtube className="w-3.5 h-3.5 shrink-0" />
+          <span>YouTube</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => onSelectSource('tiktok')}
+          className={`inline-flex items-center justify-center gap-1 py-1.5 px-1.5 text-[11px] sm:text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+            musicSource === 'tiktok'
+              ? 'bg-emerald-500 text-slate-950'
+              : 'text-slate-300 hover:text-white'
+          }`}
+        >
+          <Film className="w-3.5 h-3.5 shrink-0" />
+          <span>TikTok</span>
         </button>
         <button
           type="button"
           onClick={() => onSelectSource('spotify')}
-          className={`inline-flex items-center justify-center gap-1.5 py-1.5 px-2 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+          className={`inline-flex items-center justify-center gap-1 py-1.5 px-1.5 text-[11px] sm:text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
             musicSource === 'spotify'
               ? 'bg-emerald-500 text-slate-950'
               : 'text-slate-300 hover:text-white'
           }`}
         >
-          <Disc3 className="w-3.5 h-3.5" />
+          <Disc3 className="w-3.5 h-3.5 shrink-0" />
           <span>Spotify</span>
         </button>
         <button
           type="button"
           onClick={() => onSelectSource('upload')}
-          className={`inline-flex items-center justify-center gap-1.5 py-1.5 px-2 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+          className={`inline-flex items-center justify-center gap-1 py-1.5 px-1.5 text-[11px] sm:text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
             musicSource === 'upload'
               ? 'bg-emerald-500 text-slate-950'
               : 'text-slate-300 hover:text-white'
           }`}
         >
-          <Upload className="w-3.5 h-3.5" />
-          <span>My Audio</span>
+          <Upload className="w-3.5 h-3.5 shrink-0" />
+          <span>Upload</span>
         </button>
       </div>
 
@@ -274,7 +405,138 @@ export const MusicSourcePanel: React.FC<MusicSourcePanelProps> = ({
         </div>
       )}
 
-      {/* Mode 2: Spotify OAuth Search + Track Link */}
+      {/* Mode 2: YouTube & YouTube Music (Zero API Key) */}
+      {musicSource === 'youtube' && (
+        <div className="space-y-3 bg-slate-900/90 border border-slate-800 rounded-lg p-3.5">
+          <div className="text-xs text-slate-300">
+            Paste any <strong className="text-white">YouTube</strong> or{' '}
+            <strong className="text-white">YouTube Music</strong> URL — auto-syncs playback and
+            beat timer with zero API keys.
+          </div>
+
+          <form onSubmit={handleLoadYouTube} className="flex gap-2">
+            <div className="relative flex-1 min-w-0">
+              <Link2 className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="url"
+                value={youtubeInput}
+                onChange={(e) => setYoutubeInput(e.target.value)}
+                placeholder="https://music.youtube.com/watch?v=... or youtu.be/..."
+                className="w-full pl-8 pr-2.5 py-1.5 text-xs bg-slate-950 border border-slate-800 rounded-lg text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={youtubeLoading}
+              className="px-3 py-1.5 text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg cursor-pointer shrink-0"
+            >
+              {youtubeLoading ? 'Loading...' : 'Load'}
+            </button>
+          </form>
+
+          {selectedYoutubeTrack && (
+            <div className="flex items-center justify-between gap-3 bg-slate-950/70 border border-slate-800 rounded-lg p-2.5">
+              <div className="flex items-center gap-2.5 min-w-0">
+                {selectedYoutubeTrack.thumbnail && (
+                  <img
+                    src={selectedYoutubeTrack.thumbnail}
+                    alt={selectedYoutubeTrack.title}
+                    referrerPolicy="no-referrer"
+                    className="w-10 h-10 rounded object-cover shrink-0"
+                  />
+                )}
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold text-white truncate">
+                    {selectedYoutubeTrack.title}
+                  </div>
+                  <div className="text-[11px] text-slate-400 truncate">
+                    {selectedYoutubeTrack.author}
+                  </div>
+                </div>
+              </div>
+              <label className="flex items-center gap-1.5 shrink-0 text-xs text-slate-400">
+                <span>BPM</span>
+                <input
+                  type="number"
+                  min={70}
+                  max={175}
+                  value={customBpm}
+                  onChange={(e) => onChangeCustomBpm(Number(e.target.value) || 116)}
+                  className="w-14 px-2 py-1 text-xs font-mono-tabular bg-slate-900 border border-slate-800 rounded text-white"
+                />
+              </label>
+            </div>
+          )}
+
+          {youtubeError && <p className="text-xs text-amber-400">{youtubeError}</p>}
+        </div>
+      )}
+
+      {/* Mode 3: TikTok Link Embed */}
+      {musicSource === 'tiktok' && (
+        <div className="space-y-3 bg-slate-900/90 border border-slate-800 rounded-lg p-3.5">
+          <div className="text-xs text-slate-300">
+            Paste a full <strong className="text-white">TikTok</strong> video URL to embed its audio
+            during your round. For automatic play/pause sync, use{' '}
+            <button
+              type="button"
+              onClick={() => onSelectSource('youtube')}
+              className="text-emerald-400 underline cursor-pointer"
+            >
+              YouTube / YT Music
+            </button>
+            .
+          </div>
+
+          <form onSubmit={handleLoadTikTok} className="flex gap-2">
+            <div className="relative flex-1 min-w-0">
+              <Link2 className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="url"
+                value={tiktokInput}
+                onChange={(e) => setTiktokInput(e.target.value)}
+                placeholder="https://www.tiktok.com/@creator/video/731234567890"
+                className="w-full pl-8 pr-2.5 py-1.5 text-xs bg-slate-950 border border-slate-800 rounded-lg text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={tiktokLoading}
+              className="px-3 py-1.5 text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg cursor-pointer shrink-0"
+            >
+              {tiktokLoading ? 'Loading...' : 'Load'}
+            </button>
+          </form>
+
+          {selectedTiktokTrack && (
+            <div className="flex items-center justify-between gap-3 bg-slate-950/70 border border-slate-800 rounded-lg p-2.5">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-white truncate">
+                  {selectedTiktokTrack.title}
+                </div>
+                <div className="text-[11px] text-slate-400 truncate">
+                  {selectedTiktokTrack.author} · Click play in TikTok widget when round starts
+                </div>
+              </div>
+              <label className="flex items-center gap-1.5 shrink-0 text-xs text-slate-400">
+                <span>BPM</span>
+                <input
+                  type="number"
+                  min={70}
+                  max={175}
+                  value={customBpm}
+                  onChange={(e) => onChangeCustomBpm(Number(e.target.value) || 120)}
+                  className="w-14 px-2 py-1 text-xs font-mono-tabular bg-slate-900 border border-slate-800 rounded text-white"
+                />
+              </label>
+            </div>
+          )}
+
+          {tiktokError && <p className="text-xs text-amber-400">{tiktokError}</p>}
+        </div>
+      )}
+
+      {/* Mode 4: Spotify OAuth Search + Track Link */}
       {musicSource === 'spotify' && (
         <div className="space-y-3 bg-slate-900/90 border border-slate-800 rounded-lg p-3.5">
           {spotifyStatus?.connected ? (
@@ -282,7 +544,9 @@ export const MusicSourcePanel: React.FC<MusicSourcePanelProps> = ({
               <div className="flex items-center justify-between gap-2 text-xs">
                 <div className="text-slate-300 truncate">
                   Connected as{' '}
-                  <strong className="text-white">{spotifyStatus.user?.displayName || 'Spotify User'}</strong>
+                  <strong className="text-white">
+                    {spotifyStatus.user?.displayName || 'Spotify User'}
+                  </strong>
                   <span className="text-slate-500"> · {spotifyStatus.user?.product || 'free'}</span>
                 </div>
                 <button
@@ -357,7 +621,7 @@ export const MusicSourcePanel: React.FC<MusicSourcePanelProps> = ({
                 <div className="text-xs text-slate-300">
                   {spotifyStatus?.configured
                     ? 'Sign in with Spotify to search tracks & play from your library.'
-                    : 'Paste any Spotify track link below, or add Spotify OAuth credentials in Secrets to search your library.'}
+                    : 'Paste any Spotify track link below, or configure Spotify OAuth credentials on the server.'}
                 </div>
                 {spotifyStatus?.configured && (
                   <button
@@ -383,7 +647,6 @@ export const MusicSourcePanel: React.FC<MusicSourcePanelProps> = ({
             </div>
           )}
 
-          {/* Paste Spotify Track URL fallback (always works) */}
           <div className="pt-2 border-t border-slate-800 space-y-2">
             <div className="flex items-center gap-2">
               <div className="relative flex-1 min-w-0">
@@ -429,7 +692,7 @@ export const MusicSourcePanel: React.FC<MusicSourcePanelProps> = ({
         </div>
       )}
 
-      {/* Mode 3: Upload Your Own MP3 / WAV / M4A */}
+      {/* Mode 5: Upload Your Own MP3 / WAV / M4A */}
       {musicSource === 'upload' && (
         <div className="space-y-2.5 bg-slate-900/90 border border-slate-800 rounded-lg p-3.5">
           <label className="flex flex-col items-center justify-center border border-dashed border-slate-700 hover:border-emerald-500/70 rounded-lg p-4 text-center cursor-pointer transition-colors bg-slate-950/50">
@@ -455,7 +718,11 @@ export const MusicSourcePanel: React.FC<MusicSourcePanelProps> = ({
           {uploadedTrack && (
             <div className="flex items-center justify-between text-xs text-slate-300 px-1">
               <span>
-                Detected <strong className="font-mono-tabular text-emerald-400">{uploadedTrack.beatTimes.length}</strong> beat peaks
+                Detected{' '}
+                <strong className="font-mono-tabular text-emerald-400">
+                  {uploadedTrack.beatTimes.length}
+                </strong>{' '}
+                beat peaks
               </span>
               <label className="flex items-center gap-2 text-slate-400">
                 <span>BPM</span>
@@ -474,6 +741,48 @@ export const MusicSourcePanel: React.FC<MusicSourcePanelProps> = ({
           {uploadError && <p className="text-xs text-rose-400">{uploadError}</p>}
         </div>
       )}
+
+      {/* Save Active Track + Remembered Favorites Quick-Load Strip */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+        {(musicSource === 'synth' ||
+          (musicSource === 'youtube' && selectedYoutubeTrack) ||
+          (musicSource === 'tiktok' && selectedTiktokTrack) ||
+          (musicSource === 'spotify' && selectedSpotifyTrack)) && (
+          <button
+            type="button"
+            onClick={onToggleSaveCurrentTrack}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-semibold transition-colors cursor-pointer ${
+              currentTrackLiked
+                ? 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+                : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700 hover:text-white'
+            }`}
+          >
+            <Heart className={`w-3 h-3 ${currentTrackLiked ? 'fill-rose-400 text-rose-400' : ''}`} />
+            <span>{currentTrackLiked ? 'Saved to Taste Memory' : 'Save Track I Like'}</span>
+          </button>
+        )}
+
+        {favorites.length > 0 && (
+          <div className="flex items-center gap-1.5 overflow-x-auto max-w-full">
+            <span className="text-[11px] text-slate-400 shrink-0">Remembered:</span>
+            {favorites
+              .filter((f) => f.source !== 'upload')
+              .slice(0, 4)
+              .map((fav) => (
+                <button
+                  key={fav.trackKey}
+                  type="button"
+                  onClick={() => onLoadFavorite(fav)}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-200 truncate max-w-[140px] cursor-pointer shrink-0"
+                  title={`${fav.title} (${fav.source} · ${fav.bpm} BPM)`}
+                >
+                  {fav.liked && <Heart className="w-2.5 h-2.5 fill-rose-400 text-rose-400 shrink-0" />}
+                  <span className="truncate">{fav.title}</span>
+                </button>
+              ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

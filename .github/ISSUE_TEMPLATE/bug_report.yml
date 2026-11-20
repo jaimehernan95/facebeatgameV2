@@ -1,0 +1,51 @@
+name: Bug Report
+description: Report a crash, camera/audio sync issue, or unexpected behavior (<24h maintainer response SLA)
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting an issue! Maintainers review all bug reports within **<24 hours**.
+        Note: Webcam frames are processed 100% locally — never attach private video recordings unless intentionally scrubbed.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: A clear and concise description of the bug.
+      placeholder: e.g., Opening mouth does not trigger Lane 2 on Safari 18...
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Exact steps to reproduce the issue.
+      placeholder: |
+        1. Open FaceBeat Arcade
+        2. Select Neon Funk
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: input_mode
+    attributes:
+      label: Input Mode
+      options:
+        - Webcam (MediaPipe FaceLandmarker)
+        - Keyboard Arcade Mode (A/S/D/F)
+        - Touch / Click Pads
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Browser & OS
+      placeholder: e.g., Chrome 131 on macOS 15.1
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console Errors or Screenshots (Optional)
+      description: Paste any browser console errors if applicable.

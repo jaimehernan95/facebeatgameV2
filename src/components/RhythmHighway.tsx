@@ -1,10 +1,13 @@
 import React, { useEffect, useRef } from 'react';
-import { Pause, Play, Volume2, VolumeX } from 'lucide-react';
+import { Pause, Play, ShieldCheck, Volume2, VolumeX } from 'lucide-react';
 import { grooveEngine } from '../audio/grooveEngine';
+import { applyAudioOffset, computeAccuracy, computeMultiplier } from '../game/scoring';
 import {
   ActiveMusicMeta,
   BeatNote,
   Difficulty,
+  ExternalMediaTrack,
+  FavoriteTrackMemory,
   GameState,
   GameStats,
   HitFeedback,
@@ -17,6 +20,16 @@ import {
 } from '../types/game';
 import { MusicSourcePanel } from './MusicSourcePanel';
 
+export interface HitParticle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  color: string;
+  size: number;
+  createdAt: number;
+}
+
 interface RhythmHighwayProps {
   gameState: GameState;
   countdownValue: number;
@@ -24,23 +37,36 @@ interface RhythmHighwayProps {
   musicSource: MusicSource;
   tracks: TrackConfig[];
   selectedSynthId: TrackId;
+  selectedYoutubeTrack: ExternalMediaTrack | null;
+  selectedTiktokTrack: ExternalMediaTrack | null;
   selectedSpotifyTrack: SpotifyTrackOption | null;
   uploadedTrack: UploadedAudioTrack | null;
   customBpm: number;
+  favorites: FavoriteTrackMemory[];
+  currentTrackLiked: boolean;
+  audioOffsetMs: number;
   showSpotifyEmbed: boolean;
+  youtubeMountRef: React.RefObject<HTMLDivElement | null>;
+  youtubeFallbackEmbedId: string | null;
   difficulty: Difficulty;
   durationSec: number;
   notesRef: React.MutableRefObject<BeatNote[]>;
   feedbacksRef: React.MutableRefObject<HitFeedback[]>;
+  particlesRef: React.MutableRefObject<HitParticle[]>;
+  shakeUntilRef: React.MutableRefObject<number>;
   activeLanes: Record<Lane, boolean>;
   stats: GameStats;
   songTime: number;
   isMuted: boolean;
   onSelectSource: (source: MusicSource) => void;
   onSelectSynth: (id: TrackId) => void;
+  onSelectYoutubeTrack: (track: ExternalMediaTrack) => void;
+  onSelectTiktokTrack: (track: ExternalMediaTrack) => void;
   onSelectSpotifyTrack: (track: SpotifyTrackOption) => void;
   onSelectUploadedTrack: (track: UploadedAudioTrack) => void;
   onChangeCustomBpm: (bpm: number) => void;
+  onToggleSaveCurrentTrack: () => void;
+  onLoadFavorite: (track: FavoriteTrackMemory) => void;
   onSelectDifficulty: (d: Difficulty) => void;
   onSelectDuration: (sec: number) => void;
   onStartGame: () => void;
@@ -49,32 +75,43 @@ interface RhythmHighwayProps {
   onManualLaneTrigger: (lane: Lane) => void;
 }
 
-const LANE_ORDER: Lane[] = ['LEFT', 'MOUTH', 'RIGHT'];
+export const LANE_ORDER: Lane[] = ['LEFT', 'MOUTH', 'SMILE', 'RIGHT'];
 
-const LANE_META: Record<
+export const LANE_META: Record<
   Lane,
-  { label: string; keyHint: string; color: string; darkFill: string; symbol: string }
+  { label: string; keyHint: string; color: string; darkFill: string; symbol: string; noteLabel: string }
 > = {
   LEFT: {
     label: 'Tilt Left',
-    keyHint: 'A / ←',
+    keyHint: 'A',
     color: '#38BDF8',
     darkFill: 'rgba(56, 189, 248, 0.14)',
     symbol: '←',
+    noteLabel: '← TILT',
   },
   MOUTH: {
     label: 'Open Mouth',
-    keyHint: 'Space',
+    keyHint: 'S',
     color: '#10B981',
     darkFill: 'rgba(16, 185, 129, 0.14)',
     symbol: 'O',
+    noteLabel: 'OPEN!',
+  },
+  SMILE: {
+    label: 'Big Smile',
+    keyHint: 'D',
+    color: '#FB7185',
+    darkFill: 'rgba(251, 113, 133, 0.14)',
+    symbol: '◡',
+    noteLabel: 'SMILE',
   },
   RIGHT: {
     label: 'Tilt Right',
-    keyHint: 'D / →',
+    keyHint: 'F',
     color: '#F59E0B',
     darkFill: 'rgba(245, 158, 11, 0.14)',
     symbol: '→',
+    noteLabel: 'TILT →',
   },
 };
 
@@ -85,23 +122,36 @@ export const RhythmHighway: React.FC<RhythmHighwayProps> = ({
   musicSource,
   tracks,
   selectedSynthId,
+  selectedYoutubeTrack,
+  selectedTiktokTrack,
   selectedSpotifyTrack,
   uploadedTrack,
   customBpm,
+  favorites,
+  currentTrackLiked,
+  audioOffsetMs,
   showSpotifyEmbed,
+  youtubeMountRef,
+  youtubeFallbackEmbedId,
   difficulty,
   durationSec,
   notesRef,
   feedbacksRef,
+  particlesRef,
+  shakeUntilRef,
   activeLanes,
   stats,
   songTime,
   isMuted,
   onSelectSource,
   onSelectSynth,
+  onSelectYoutubeTrack,
+  onSelectTiktokTrack,
   onSelectSpotifyTrack,
   onSelectUploadedTrack,
   onChangeCustomBpm,
+  onToggleSaveCurrentTrack,
+  onLoadFavorite,
   onSelectDifficulty,
   onSelectDuration,
   onStartGame,
@@ -119,8 +169,14 @@ export const RhythmHighway: React.FC<RhythmHighwayProps> = ({
   const gameStateRef = useRef(gameState);
   gameStateRef.current = gameState;
 
+  const offsetMsRef = useRef(audioOffsetMs);
+  offsetMsRef.current = audioOffsetMs;
+
   useEffect(() => {
     let rafId = 0;
+    const reducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
     const render = () => {
       const canvas = canvasRef.current;
@@ -138,14 +194,26 @@ export const RhythmHighway: React.FC<RhythmHighwayProps> = ({
         if (ctx) {
           ctx.save();
           ctx.scale(dpr, dpr);
+
+          // Subtle damped screen shake on high-combo PERFECT/GREAT hits
+          const nowPerf = performance.now();
+          if (!reducedMotion && shakeUntilRef.current > nowPerf) {
+            const intensity = ((shakeUntilRef.current - nowPerf) / 140) * 3.5;
+            const dx = (Math.random() - 0.5) * 2 * intensity;
+            const dy = (Math.random() - 0.5) * 2 * intensity;
+            ctx.translate(dx, dy);
+          }
+
           drawHighway(
             ctx,
             rect.width,
             rect.height,
             activeMusicRef.current.bpm,
+            offsetMsRef.current,
             gameStateRef.current,
             notesRef.current,
             feedbacksRef.current,
+            particlesRef.current,
             activeLanesRef.current
           );
           ctx.restore();
@@ -156,16 +224,15 @@ export const RhythmHighway: React.FC<RhythmHighwayProps> = ({
 
     rafId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(rafId);
-  }, [notesRef, feedbacksRef]);
+  }, [notesRef, feedbacksRef, particlesRef, shakeUntilRef]);
 
-  const totalJudged = stats.perfect + stats.good + stats.miss;
-  const accuracy =
-    totalJudged > 0
-      ? Math.round(((stats.perfect + stats.good * 0.65) / totalJudged) * 100)
-      : 100;
+  const accuracy = computeAccuracy(stats);
+  const multiplier = computeMultiplier(stats.combo);
   const progressPct = Math.min(100, Math.max(0, (songTime / durationSec) * 100));
 
   const startBlockedByMissingMusic =
+    (musicSource === 'youtube' && !selectedYoutubeTrack) ||
+    (musicSource === 'tiktok' && !selectedTiktokTrack) ||
     (musicSource === 'spotify' && !selectedSpotifyTrack) ||
     (musicSource === 'upload' && !uploadedTrack);
 
@@ -174,9 +241,9 @@ export const RhythmHighway: React.FC<RhythmHighwayProps> = ({
       aria-label="Rhythm Highway"
       className="flex flex-col bg-slate-900 border border-slate-800 rounded-xl overflow-hidden h-full"
     >
-      {/* Top Score & Controls HUD */}
+      {/* Top Score, Combo Multiplier & Controls HUD */}
       <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-3 border-b border-slate-800 bg-slate-900">
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-5 sm:gap-6">
           <div>
             <div className="text-xs text-slate-400">Score</div>
             <div className="font-mono-tabular text-xl font-bold text-white leading-tight">
@@ -186,7 +253,21 @@ export const RhythmHighway: React.FC<RhythmHighwayProps> = ({
           <div>
             <div className="text-xs text-slate-400">Combo</div>
             <div className="font-mono-tabular text-xl font-bold text-emerald-400 leading-tight">
-              {stats.combo}x
+              {stats.combo}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-slate-400">Mult</div>
+            <div
+              className={`font-mono-tabular text-xl font-bold leading-tight ${
+                multiplier >= 4
+                  ? 'text-amber-400'
+                  : multiplier >= 2
+                    ? 'text-sky-400'
+                    : 'text-slate-300'
+              }`}
+            >
+              {multiplier}x
             </div>
           </div>
           <div>
@@ -237,6 +318,38 @@ export const RhythmHighway: React.FC<RhythmHighwayProps> = ({
         />
       </div>
 
+      {/* Compact YouTube / YouTube Music Player Bar */}
+      {musicSource === 'youtube' && selectedYoutubeTrack && gameState !== 'TITLE_MENU' && (
+        <div className="px-3 py-2 bg-slate-950 border-b border-slate-800">
+          {youtubeFallbackEmbedId ? (
+            <iframe
+              title={`YouTube Player: ${selectedYoutubeTrack.title}`}
+              src={`https://www.youtube-nocookie.com/embed/${youtubeFallbackEmbedId}?autoplay=1&playsinline=1`}
+              width="100%"
+              height="88"
+              allow="autoplay; encrypted-media; picture-in-picture"
+              className="rounded-lg border-0"
+            />
+          ) : (
+            <div ref={youtubeMountRef} className="w-full h-[88px] rounded-lg overflow-hidden bg-slate-900" />
+          )}
+        </div>
+      )}
+
+      {/* Compact TikTok Embed Bar */}
+      {musicSource === 'tiktok' && selectedTiktokTrack && gameState !== 'TITLE_MENU' && (
+        <div className="px-3 py-2 bg-slate-950 border-b border-slate-800">
+          <iframe
+            title={`TikTok Player: ${selectedTiktokTrack.title}`}
+            src={`https://www.tiktok.com/embed/v2/${selectedTiktokTrack.id}`}
+            width="100%"
+            height="140"
+            allow="autoplay; encrypted-media; picture-in-picture"
+            className="rounded-lg border-0"
+          />
+        </div>
+      )}
+
       {/* Optional Compact Spotify Embed Bar when playing via Spotify Embed */}
       {showSpotifyEmbed && selectedSpotifyTrack && gameState !== 'TITLE_MENU' && (
         <div className="px-3 py-2 bg-slate-950 border-b border-slate-800 flex items-center gap-3">
@@ -260,28 +373,36 @@ export const RhythmHighway: React.FC<RhythmHighwayProps> = ({
         {gameState === 'TITLE_MENU' && (
           <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-5 overflow-y-auto">
             <div className="w-full max-w-lg space-y-4">
-              <div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="font-display text-2xl font-bold text-white tracking-tight">
                   Pick Music & Start Moving
                 </h2>
-                <p className="text-xs text-slate-300 mt-1">
-                  Use built-in free synth grooves, connect Spotify, or upload any audio file from
-                  your device.
-                </p>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 whitespace-nowrap">
+                  <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                  <span>100% Local Webcam — Zero Video Uploaded</span>
+                </span>
               </div>
 
               <MusicSourcePanel
                 musicSource={musicSource}
                 tracks={tracks}
                 selectedSynthId={selectedSynthId}
+                selectedYoutubeTrack={selectedYoutubeTrack}
+                selectedTiktokTrack={selectedTiktokTrack}
                 selectedSpotifyTrack={selectedSpotifyTrack}
                 uploadedTrack={uploadedTrack}
                 customBpm={customBpm}
+                favorites={favorites}
+                currentTrackLiked={currentTrackLiked}
                 onSelectSource={onSelectSource}
                 onSelectSynth={onSelectSynth}
+                onSelectYoutubeTrack={onSelectYoutubeTrack}
+                onSelectTiktokTrack={onSelectTiktokTrack}
                 onSelectSpotifyTrack={onSelectSpotifyTrack}
                 onSelectUploadedTrack={onSelectUploadedTrack}
                 onChangeCustomBpm={onChangeCustomBpm}
+                onToggleSaveCurrentTrack={onToggleSaveCurrentTrack}
+                onLoadFavorite={onLoadFavorite}
               />
 
               {/* Difficulty & Round Length */}
@@ -382,8 +503,8 @@ export const RhythmHighway: React.FC<RhythmHighwayProps> = ({
         )}
       </div>
 
-      {/* Interactive Touch / Click Receptor Pads */}
-      <div className="grid grid-cols-3 gap-2 p-3 bg-slate-900 border-t border-slate-800">
+      {/* 4 Interactive Touch / Keyboard Receptor Pads (A / S / D / F) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-slate-900 border-t border-slate-800">
         {LANE_ORDER.map((lane) => {
           const meta = LANE_META[lane];
           const active = activeLanes[lane];
@@ -410,7 +531,7 @@ export const RhythmHighway: React.FC<RhythmHighwayProps> = ({
                 </span>
                 <span className="text-xs font-semibold text-slate-100 truncate">{meta.label}</span>
               </div>
-              <span className="font-mono-tabular text-[11px] text-slate-400 hidden sm:inline shrink-0">
+              <span className="font-mono-tabular text-[11px] font-bold text-slate-300 bg-slate-800 px-1.5 py-0.5 rounded shrink-0">
                 {meta.keyHint}
               </span>
             </button>
@@ -426,17 +547,24 @@ function drawHighway(
   width: number,
   height: number,
   bpm: number,
+  audioOffsetMs: number,
   gameState: GameState,
   notes: BeatNote[],
   feedbacks: HitFeedback[],
+  particles: HitParticle[],
   activeLanes: Record<Lane, boolean>
 ) {
   ctx.clearRect(0, 0, width, height);
 
-  const songTime = gameState === 'PLAYING' || gameState === 'PAUSED' ? grooveEngine.getSongTime() : 0;
+  const rawSongTime =
+    gameState === 'PLAYING' || gameState === 'PAUSED' ? grooveEngine.getSongTime() : 0;
+  const songTime =
+    gameState === 'PLAYING' || gameState === 'PAUSED'
+      ? applyAudioOffset(rawSongTime, audioOffsetMs)
+      : 0;
   const beatPulse = gameState === 'PLAYING' ? grooveEngine.getBeatPulse(bpm) : 0;
 
-  const laneWidth = width / 3;
+  const laneWidth = width / LANE_ORDER.length;
   const hitY = height - 66;
   const lookAheadSec = 1.65;
   const pixelsPerSec = hitY / lookAheadSec;
@@ -490,7 +618,7 @@ function drawHighway(
     const cx = idx * laneWidth + laneWidth / 2;
     const meta = LANE_META[lane];
     const isActive = activeLanes[lane];
-    const radius = isActive ? 25 + beatPulse * 2 : 22 + beatPulse * 1.5;
+    const radius = isActive ? 24 + beatPulse * 2 : 21 + beatPulse * 1.5;
 
     ctx.save();
     ctx.beginPath();
@@ -502,10 +630,10 @@ function drawHighway(
     ctx.stroke();
 
     ctx.fillStyle = isActive ? meta.color : '#94A3B8';
-    ctx.font = '700 16px "JetBrains Mono", monospace';
+    ctx.font = '700 13px "JetBrains Mono", monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(lane === 'MOUTH' ? 'OPEN' : meta.symbol, cx, hitY);
+    ctx.fillText(meta.keyHint, cx, hitY);
     ctx.restore();
   });
 
@@ -516,11 +644,12 @@ function drawHighway(
 
     const y = hitY - dt * pixelsPerSec;
     const laneIdx = LANE_ORDER.indexOf(note.lane);
+    if (laneIdx === -1) continue;
     const cx = laneIdx * laneWidth + laneWidth / 2;
     const meta = LANE_META[note.lane];
 
     ctx.save();
-    const noteW = Math.min(laneWidth * 0.68, 96);
+    const noteW = Math.min(laneWidth * 0.72, 88);
     const noteH = 34;
     const x = cx - noteW / 2;
     const top = y - noteH / 2;
@@ -529,7 +658,7 @@ function drawHighway(
 
     ctx.beginPath();
     ctx.roundRect(x, top, noteW, noteH, 8);
-    ctx.fillStyle = note.isBonus ? '#F59E0B' : meta.color;
+    ctx.fillStyle = note.isBonus ? '#FBBF24' : meta.color;
     ctx.fill();
 
     if (note.isBonus) {
@@ -539,27 +668,46 @@ function drawHighway(
     }
 
     ctx.fillStyle = '#0B1120';
-    ctx.font = '700 12px "Outfit", sans-serif';
+    ctx.font = '700 11px "Outfit", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const text =
-      note.lane === 'LEFT'
-        ? '← TILT'
-        : note.lane === 'RIGHT'
-          ? 'TILT →'
-          : note.isBonus
-            ? '★ BIG OPEN'
-            : 'OPEN!';
+    const text = note.isBonus ? `★ ${meta.noteLabel}` : meta.noteLabel;
     ctx.fillText(text, cx, y + 0.5);
     ctx.restore();
   }
 
+  // Particle bursts
   const nowPerf = performance.now();
-  for (const fb of feedbacks) {
-    const age = (nowPerf - fb.createdAt) / 550;
-    if (age < 0 || age > 1) continue;
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    const age = (nowPerf - p.createdAt) / 480;
+    if (age >= 1) {
+      particles.splice(i, 1);
+      continue;
+    }
+    const px = p.x * width + p.vx * age * 65;
+    const py = hitY + p.vy * age * 65;
+    ctx.save();
+    ctx.globalAlpha = 1 - age;
+    ctx.beginPath();
+    ctx.arc(px, py, p.size * (1 - age * 0.5), 0, Math.PI * 2);
+    ctx.fillStyle = p.color;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Hit rings & floating judgments
+  for (let i = feedbacks.length - 1; i >= 0; i--) {
+    const fb = feedbacks[i];
+    const age = (nowPerf - fb.createdAt) / 560;
+    if (age > 1) {
+      feedbacks.splice(i, 1);
+      continue;
+    }
+    if (age < 0) continue;
 
     const laneIdx = LANE_ORDER.indexOf(fb.lane);
+    if (laneIdx === -1) continue;
     const cx = laneIdx * laneWidth + laneWidth / 2;
     const meta = LANE_META[fb.lane];
 
@@ -568,22 +716,24 @@ function drawHighway(
 
     if (fb.judgment !== 'MISS') {
       ctx.beginPath();
-      ctx.arc(cx, hitY, 24 + age * 28, 0, Math.PI * 2);
+      ctx.arc(cx, hitY, 24 + age * 30, 0, Math.PI * 2);
       ctx.lineWidth = 3 * (1 - age);
       ctx.strokeStyle = fb.isBonus ? '#FBBF24' : meta.color;
       ctx.stroke();
     }
 
-    const labelY = hitY - 34 - age * 24;
+    const labelY = hitY - 34 - age * 26;
     ctx.font = '700 13px "JetBrains Mono", monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle =
       fb.judgment === 'PERFECT'
         ? '#34D399'
-        : fb.judgment === 'GOOD'
-          ? '#38BDF8'
-          : '#FB7185';
+        : fb.judgment === 'GREAT'
+          ? '#FBBF24'
+          : fb.judgment === 'GOOD'
+            ? '#38BDF8'
+            : '#FB7185';
     const labelText = fb.judgment === 'MISS' ? 'MISS' : `${fb.judgment} +${fb.points}`;
     ctx.fillText(labelText, cx, labelY);
     ctx.restore();

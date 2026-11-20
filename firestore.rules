@@ -1,0 +1,242 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidDifficulty(val) {
+      return val is string && (val == 'chill' || val == 'groove' || val == 'turbo');
+    }
+
+    function isValidSource(val) {
+      return val is string && (val == 'synth' || val == 'youtube' || val == 'tiktok' || val == 'spotify' || val == 'upload');
+    }
+
+    function isValidGrade(val) {
+      return val is string && (val == 'S+' || val == 'S' || val == 'A' || val == 'B' || val == 'C');
+    }
+
+    function isValidUserMemoryProfile(data, userId) {
+      return data.keys().hasAll([
+          'uid', 'displayName', 'mouthThreshold', 'smileThreshold', 'tiltThreshold',
+          'audioOffsetMs', 'preferredDifficulty', 'preferredDurationSec',
+          'totalSessions', 'bestScore', 'bestCombo',
+          'laneLeftHits', 'laneLeftTotal', 'laneMouthHits', 'laneMouthTotal',
+          'laneSmileHits', 'laneSmileTotal', 'laneRightHits', 'laneRightTotal',
+          'tasteSummary', 'fitnessCoachTip', 'tasteTags', 'tasteCentroid',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'displayName', 'mouthThreshold', 'smileThreshold', 'tiltThreshold',
+          'audioOffsetMs', 'preferredDifficulty', 'preferredDurationSec',
+          'totalSessions', 'bestScore', 'bestCombo',
+          'laneLeftHits', 'laneLeftTotal', 'laneMouthHits', 'laneMouthTotal',
+          'laneSmileHits', 'laneSmileTotal', 'laneRightHits', 'laneRightTotal',
+          'tasteSummary', 'fitnessCoachTip', 'tasteTags', 'tasteCentroid',
+          'createdAt', 'updatedAt'
+        ])
+        && data.uid is string && data.uid == userId && data.uid == request.auth.uid && isValidId(data.uid)
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && data.mouthThreshold is number && data.mouthThreshold >= 0.05 && data.mouthThreshold <= 0.95
+        && data.smileThreshold is number && data.smileThreshold >= 0.05 && data.smileThreshold <= 0.95
+        && data.tiltThreshold is number && data.tiltThreshold >= 0.05 && data.tiltThreshold <= 0.95
+        && data.audioOffsetMs is number && data.audioOffsetMs >= -200 && data.audioOffsetMs <= 200
+        && isValidDifficulty(data.preferredDifficulty)
+        && data.preferredDurationSec is number && data.preferredDurationSec >= 15 && data.preferredDurationSec <= 180
+        && data.totalSessions is number && data.totalSessions >= 0
+        && data.bestScore is number && data.bestScore >= 0
+        && data.bestCombo is number && data.bestCombo >= 0
+        && data.laneLeftHits is number && data.laneLeftHits >= 0
+        && data.laneLeftTotal is number && data.laneLeftTotal >= data.laneLeftHits
+        && data.laneMouthHits is number && data.laneMouthHits >= 0
+        && data.laneMouthTotal is number && data.laneMouthTotal >= data.laneMouthHits
+        && data.laneSmileHits is number && data.laneSmileHits >= 0
+        && data.laneSmileTotal is number && data.laneSmileTotal >= data.laneSmileHits
+        && data.laneRightHits is number && data.laneRightHits >= 0
+        && data.laneRightTotal is number && data.laneRightTotal >= data.laneRightHits
+        && data.tasteSummary is string && data.tasteSummary.size() <= 600
+        && data.fitnessCoachTip is string && data.fitnessCoachTip.size() <= 600
+        && data.tasteTags is list && data.tasteTags.size() <= 12
+        && (data.tasteTags.size() == 0 || (data.tasteTags[0] is string && data.tasteTags[0].size() <= 40))
+        && data.tasteCentroid is list && data.tasteCentroid.size() <= 32
+        && (data.tasteCentroid.size() == 0 || data.tasteCentroid[0] is number)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFavoriteTrack(data, userId, trackKey) {
+      return data.keys().hasAll([
+          'uid', 'trackKey', 'source', 'sourceId', 'title', 'author', 'url', 'thumbnail',
+          'bpm', 'liked', 'playCount', 'bestScore', 'tasteVector', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'trackKey', 'source', 'sourceId', 'title', 'author', 'url', 'thumbnail',
+          'bpm', 'liked', 'playCount', 'bestScore', 'tasteVector', 'createdAt', 'updatedAt'
+        ])
+        && data.uid is string && data.uid == userId && data.uid == request.auth.uid && isValidId(data.uid)
+        && data.trackKey is string && data.trackKey == trackKey && isValidId(data.trackKey)
+        && isValidSource(data.source)
+        && data.sourceId is string && data.sourceId.size() >= 1 && data.sourceId.size() <= 200
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+        && data.author is string && data.author.size() >= 1 && data.author.size() <= 150
+        && data.url is string && data.url.size() <= 500
+        && data.thumbnail is string && data.thumbnail.size() <= 500
+        && data.bpm is number && data.bpm >= 40 && data.bpm <= 220
+        && data.liked is bool
+        && data.playCount is number && data.playCount >= 0
+        && data.bestScore is number && data.bestScore >= 0
+        && data.tasteVector is list && data.tasteVector.size() <= 32
+        && (data.tasteVector.size() == 0 || data.tasteVector[0] is number)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFitnessSession(data, userId) {
+      return data.keys().hasAll([
+          'uid', 'trackKey', 'trackTitle', 'source', 'bpm', 'difficulty', 'durationSec',
+          'score', 'accuracy', 'maxCombo', 'grade',
+          'leftHits', 'leftTotal', 'mouthHits', 'mouthTotal',
+          'smileHits', 'smileTotal', 'rightHits', 'rightTotal',
+          'peakMouth', 'peakSmile', 'peakTilt', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'trackKey', 'trackTitle', 'source', 'bpm', 'difficulty', 'durationSec',
+          'score', 'accuracy', 'maxCombo', 'grade',
+          'leftHits', 'leftTotal', 'mouthHits', 'mouthTotal',
+          'smileHits', 'smileTotal', 'rightHits', 'rightTotal',
+          'peakMouth', 'peakSmile', 'peakTilt', 'createdAt'
+        ])
+        && data.uid is string && data.uid == userId && data.uid == request.auth.uid && isValidId(data.uid)
+        && data.trackKey is string && isValidId(data.trackKey)
+        && data.trackTitle is string && data.trackTitle.size() >= 1 && data.trackTitle.size() <= 200
+        && isValidSource(data.source)
+        && data.bpm is number && data.bpm >= 40 && data.bpm <= 220
+        && isValidDifficulty(data.difficulty)
+        && data.durationSec is number && data.durationSec >= 15 && data.durationSec <= 180
+        && data.score is number && data.score >= 0
+        && data.accuracy is number && data.accuracy >= 0 && data.accuracy <= 100
+        && data.maxCombo is number && data.maxCombo >= 0
+        && isValidGrade(data.grade)
+        && data.leftHits is number && data.leftHits >= 0
+        && data.leftTotal is number && data.leftTotal >= data.leftHits
+        && data.mouthHits is number && data.mouthHits >= 0
+        && data.mouthTotal is number && data.mouthTotal >= data.mouthHits
+        && data.smileHits is number && data.smileHits >= 0
+        && data.smileTotal is number && data.smileTotal >= data.smileHits
+        && data.rightHits is number && data.rightHits >= 0
+        && data.rightTotal is number && data.rightTotal >= data.rightHits
+        && data.peakMouth is number && data.peakMouth >= 0 && data.peakMouth <= 1
+        && data.peakSmile is number && data.peakSmile >= 0 && data.peakSmile <= 1
+        && data.peakTilt is number && data.peakTilt >= 0 && data.peakTilt <= 1
+        && data.createdAt is timestamp;
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserMemoryProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserMemoryProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action 1: Update calibration & gameplay preferences
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'displayName', 'mouthThreshold', 'smileThreshold', 'tiltThreshold',
+            'audioOffsetMs', 'preferredDifficulty', 'preferredDurationSec', 'updatedAt'
+          ])
+          ||
+          // Action 2: Record round fitness aggregates
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'totalSessions', 'bestScore', 'bestCombo',
+            'laneLeftHits', 'laneLeftTotal', 'laneMouthHits', 'laneMouthTotal',
+            'laneSmileHits', 'laneSmileTotal', 'laneRightHits', 'laneRightTotal',
+            'updatedAt'
+          ])
+          ||
+          // Action 3: Update AI taste summary, fitness coach tip, and taste vector centroid
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'tasteSummary', 'fitnessCoachTip', 'tasteTags', 'tasteCentroid', 'updatedAt'
+          ])
+        );
+      allow delete: if false;
+
+      match /favoriteTracks/{trackKey} {
+        allow get: if isValidId(userId) && isValidId(trackKey) && isOwner(userId);
+        allow list: if isOwner(userId) && existing().uid == request.auth.uid;
+        allow create: if isValidId(userId)
+          && isValidId(trackKey)
+          && isOwner(userId)
+          && isValidFavoriteTrack(incoming(), userId, trackKey)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+        allow update: if isValidId(userId)
+          && isValidId(trackKey)
+          && isOwner(userId)
+          && isValidFavoriteTrack(incoming(), userId, trackKey)
+          && incoming().uid == existing().uid
+          && incoming().trackKey == existing().trackKey
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid
+          && (
+            // Action 1: Toggle liked / update BPM or metadata
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'liked', 'bpm', 'title', 'author', 'thumbnail', 'tasteVector', 'updatedAt'
+            ])
+            ||
+            // Action 2: Record play count & track high score
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'playCount', 'bestScore', 'bpm', 'tasteVector', 'updatedAt'
+            ])
+          );
+        allow delete: if isValidId(userId) && isValidId(trackKey) && isOwner(userId);
+      }
+
+      match /sessions/{sessionId} {
+        allow get: if isValidId(userId) && isValidId(sessionId) && isOwner(userId);
+        allow list: if isOwner(userId) && existing().uid == request.auth.uid;
+        allow create: if isValidId(userId)
+          && isValidId(sessionId)
+          && isOwner(userId)
+          && isValidFitnessSession(incoming(), userId)
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+        allow update: if false;
+        allow delete: if isValidId(userId) && isValidId(sessionId) && isOwner(userId);
+      }
+    }
+  }
+}

@@ -1,38 +1,39 @@
 import React from 'react';
-import { RotateCcw, Trophy } from 'lucide-react';
-import { Difficulty, GameStats, LeaderboardEntry, TrackConfig } from '../types/game';
+import { Activity, RotateCcw, Trophy } from 'lucide-react';
+import { computeAccuracy, computeGrade } from '../game/scoring';
+import { Difficulty, GameStats, Lane, LaneBreakdown, LeaderboardEntry, TrackConfig } from '../types/game';
 
 interface SummaryModalProps {
   stats: GameStats;
   track: TrackConfig;
   difficulty: Difficulty;
   durationSec: number;
+  laneBreakdown: LaneBreakdown;
   leaderboard: LeaderboardEntry[];
+  onOpenMemory: () => void;
   onPlayAgain: () => void;
   onBackToMenu: () => void;
 }
 
-export function computeGrade(accuracy: number): string {
-  if (accuracy >= 94) return 'S';
-  if (accuracy >= 84) return 'A';
-  if (accuracy >= 70) return 'B';
-  return 'C';
-}
+const LANE_SHORT: Record<Lane, { label: string; colorClass: string }> = {
+  LEFT: { label: 'Tilt Left', colorClass: 'text-sky-400' },
+  MOUTH: { label: 'Open Mouth', colorClass: 'text-emerald-400' },
+  SMILE: { label: 'Big Smile', colorClass: 'text-rose-400' },
+  RIGHT: { label: 'Tilt Right', colorClass: 'text-amber-400' },
+};
 
 export const SummaryModal: React.FC<SummaryModalProps> = ({
   stats,
   track,
   difficulty,
   durationSec,
+  laneBreakdown,
   leaderboard,
+  onOpenMemory,
   onPlayAgain,
   onBackToMenu,
 }) => {
-  const totalJudged = stats.perfect + stats.good + stats.miss;
-  const accuracy =
-    totalJudged > 0
-      ? Math.round(((stats.perfect + stats.good * 0.65) / totalJudged) * 100)
-      : 0;
+  const accuracy = computeAccuracy(stats);
   const grade = computeGrade(accuracy);
 
   return (
@@ -43,7 +44,6 @@ export const SummaryModal: React.FC<SummaryModalProps> = ({
       className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4"
     >
       <div className="w-full max-w-xl bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-6">
-        {/* Header */}
         <div className="flex items-start justify-between gap-4 border-b border-slate-800 pb-4">
           <div>
             <div className="text-xs text-slate-400">
@@ -71,7 +71,6 @@ export const SummaryModal: React.FC<SummaryModalProps> = ({
           </div>
         </div>
 
-        {/* Core Stats */}
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-slate-950/80 border border-slate-800 rounded-lg p-3">
             <div className="text-xs text-slate-400">Final Score</div>
@@ -93,10 +92,15 @@ export const SummaryModal: React.FC<SummaryModalProps> = ({
           </div>
         </div>
 
-        {/* Hit Breakdown */}
-        <div className="flex items-center justify-between text-xs text-slate-300 bg-slate-950/60 border border-slate-800 rounded-lg px-4 py-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300 bg-slate-950/60 border border-slate-800 rounded-lg px-4 py-2.5">
           <span>
             Perfect: <strong className="font-mono-tabular text-emerald-400">{stats.perfect}</strong>
+          </span>
+          <span aria-hidden="true" className="text-slate-600">
+            ·
+          </span>
+          <span>
+            Great: <strong className="font-mono-tabular text-amber-300">{stats.great}</strong>
           </span>
           <span aria-hidden="true" className="text-slate-600">
             ·
@@ -112,14 +116,32 @@ export const SummaryModal: React.FC<SummaryModalProps> = ({
           </span>
         </div>
 
-        {/* Top Local Scores */}
+        {/* 4-Expression Facial Fitness Breakdown for this Round */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {(['LEFT', 'MOUTH', 'SMILE', 'RIGHT'] as Lane[]).map((lane) => {
+            const metric = laneBreakdown[lane];
+            const pct = metric.total > 0 ? Math.round((metric.hits / metric.total) * 100) : 100;
+            return (
+              <div
+                key={lane}
+                className="bg-slate-950/60 border border-slate-800 rounded-lg px-3 py-2 text-xs"
+              >
+                <div className="text-[11px] text-slate-400">{LANE_SHORT[lane].label}</div>
+                <div className={`font-mono-tabular font-bold mt-0.5 ${LANE_SHORT[lane].colorClass}`}>
+                  {metric.total > 0 ? `${pct}% (${metric.hits}/${metric.total})` : '—'}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
         {leaderboard.length > 0 && (
           <div className="space-y-2">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
               <Trophy className="w-3.5 h-3.5 text-amber-400" />
               <span>Session Top Scores</span>
             </div>
-            <div className="border border-slate-800 rounded-lg divide-y divide-slate-800/80 max-h-40 overflow-y-auto">
+            <div className="border border-slate-800 rounded-lg divide-y divide-slate-800/80 max-h-36 overflow-y-auto">
               {leaderboard.slice(0, 5).map((entry, idx) => (
                 <div
                   key={entry.id}
@@ -140,23 +162,33 @@ export const SummaryModal: React.FC<SummaryModalProps> = ({
           </div>
         )}
 
-        {/* Actions */}
-        <div className="flex items-center justify-end gap-3 pt-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
           <button
             type="button"
-            onClick={onBackToMenu}
-            className="px-4 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium transition-colors cursor-pointer whitespace-nowrap"
+            onClick={onOpenMemory}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
           >
-            Change Track
+            <Activity className="w-3.5 h-3.5" />
+            <span>View Face Fitness & Memory</span>
           </button>
-          <button
-            type="button"
-            onClick={onPlayAgain}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-bold transition-colors cursor-pointer whitespace-nowrap"
-          >
-            <RotateCcw className="w-4 h-4" />
-            <span>Play Again</span>
-          </button>
+
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onBackToMenu}
+              className="px-4 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium transition-colors cursor-pointer whitespace-nowrap"
+            >
+              Change Music
+            </button>
+            <button
+              type="button"
+              onClick={onPlayAgain}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-bold transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>Play Again</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

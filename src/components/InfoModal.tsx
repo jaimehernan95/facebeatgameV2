@@ -1,5 +1,5 @@
 import React from 'react';
-import { Trash2, Trophy, X } from 'lucide-react';
+import { ShieldCheck, Trash2, Trophy, X } from 'lucide-react';
 import { LeaderboardEntry } from '../types/game';
 
 interface InfoModalProps {
@@ -39,35 +39,43 @@ export const InfoModal: React.FC<InfoModalProps> = ({
 
         {mode === 'how-to-play' ? (
           <div className="space-y-4 text-sm text-slate-300 leading-relaxed">
-            <p>
-              FaceBeat Arcade runs 100% locally in your browser with MediaPipe face tracking and
-              procedural Web Audio music — zero external APIs or keys required.
-            </p>
-            <div className="space-y-2.5">
+            <div className="flex items-center gap-2 text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/25 rounded-lg px-3 py-2">
+              <ShieldCheck className="w-4 h-4 shrink-0" />
+              <span>100% Local Webcam — Zero Video Uploaded. All face tracking runs on-device.</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-3">
-                <div className="font-semibold text-emerald-400">1. Open Mouth — Center Lane</div>
+                <div className="font-semibold text-sky-400">1. Tilt Head Left · Key A</div>
                 <div className="text-xs text-slate-400 mt-0.5">
-                  Open your mouth wide right as a green note hits the target ring, then close briefly
-                  before the next beat.
+                  Tilt toward your left shoulder on sky-blue notes.
                 </div>
               </div>
               <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-3">
-                <div className="font-semibold text-sky-400">2. Tilt Head Left — Left Lane</div>
+                <div className="font-semibold text-emerald-400">2. Open Mouth · Key S</div>
                 <div className="text-xs text-slate-400 mt-0.5">
-                  Tilt your head toward your left shoulder to catch blue left-lane notes.
+                  Open wide on emerald notes, then close briefly before the next beat.
                 </div>
               </div>
               <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-3">
-                <div className="font-semibold text-amber-400">3. Tilt Head Right — Right Lane</div>
+                <div className="font-semibold text-rose-400">3. Big Smile · Key D</div>
                 <div className="text-xs text-slate-400 mt-0.5">
-                  Tilt your head toward your right shoulder to catch amber right-lane notes.
+                  Flash a smile on rose notes to keep your combo multiplier climbing.
+                </div>
+              </div>
+              <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-3">
+                <div className="font-semibold text-amber-400">4. Tilt Head Right · Key F</div>
+                <div className="text-xs text-slate-400 mt-0.5">
+                  Tilt toward your right shoulder on amber notes.
                 </div>
               </div>
             </div>
+
             <p className="text-xs text-slate-400">
-              Tip: Use the <strong className="text-slate-200">Tune</strong> sliders under the
-              camera preview to dial in mouth and tilt thresholds for your lighting, or play anytime
-              with keys <span className="font-mono-tabular text-slate-200">A / Space / D</span>.
+              Playing on Bluetooth headphones? Open <strong className="text-slate-200">Settings</strong>{' '}
+              to adjust <strong className="text-slate-200">Calibrate Offset (ms)</strong> from -200ms
+              to +200ms. No webcam? <strong className="text-slate-200">A / S / D / F</strong> works
+              automatically in Keyboard Arcade Mode.
             </p>
           </div>
         ) : (

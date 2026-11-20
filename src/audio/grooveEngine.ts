@@ -34,8 +34,9 @@ class GrooveAudioEngine {
   // Preview audio element mode (Spotify 30s preview_url)
   private previewAudio: HTMLAudioElement | null = null;
 
-  // External clock fallback (Spotify SDK / Embed)
+  // External clock fallback (Spotify SDK / YouTube / TikTok / Embed)
   private externalStartPerfMs = 0;
+  private externalTimeProvider: (() => number | null) | null = null;
 
   private ensureContext(): AudioContext {
     if (!this.ctx) {
@@ -55,14 +56,15 @@ class GrooveAudioEngine {
       this.masterGain.gain.value = this.isMuted ? 0 : this.volume;
 
       this.musicGain = this.ctx.createGain();
-      this.musicGain.gain.value = 0.72;
+      this.musicGain.gain.value = 0.58;
 
       this.sfxGain = this.ctx.createGain();
-      this.sfxGain.gain.value = 0.85;
+      this.sfxGain.gain.value = 1.0;
 
+      // Music goes through dynamics compressor; SFX bypasses music compression so score tones stay crisp & audible
       this.musicGain.connect(compressor);
-      this.sfxGain.connect(compressor);
       compressor.connect(this.masterGain);
+      this.sfxGain.connect(this.masterGain);
       this.masterGain.connect(this.ctx.destination);
 
       const length = Math.floor(this.ctx.sampleRate * 0.5);
@@ -166,7 +168,7 @@ class GrooveAudioEngine {
     });
   }
 
-  public startExternalClock() {
+  public startExternalClock(timeProvider?: () => number | null) {
     this.ensureContext();
     this.stop();
 
@@ -175,6 +177,7 @@ class GrooveAudioEngine {
     this.isPaused = false;
     this.pausedElapsed = 0;
     this.externalStartPerfMs = performance.now();
+    this.externalTimeProvider = timeProvider ?? null;
   }
 
   private startBufferAtOffset(offsetSec: number, whenAudioTime: number) {
@@ -245,6 +248,7 @@ class GrooveAudioEngine {
   public stop() {
     this.isPlaying = false;
     this.isPaused = false;
+    this.externalTimeProvider = null;
     if (this.schedulerTimer !== null) {
       clearInterval(this.schedulerTimer);
       this.schedulerTimer = null;
@@ -268,6 +272,12 @@ class GrooveAudioEngine {
   public getSongTime(): number {
     if (!this.isPlaying) return 0;
     if (this.isPaused) return this.pausedElapsed;
+    if (this.mode === 'external' && this.externalTimeProvider) {
+      const provided = this.externalTimeProvider();
+      if (typeof provided === 'number' && Number.isFinite(provided) && provided >= 0) {
+        return provided;
+      }
+    }
     if (this.mode === 'preview' || this.mode === 'external') {
       return Math.max(0, (performance.now() - this.externalStartPerfMs) / 1000);
     }
@@ -485,28 +495,125 @@ class GrooveAudioEngine {
     osc.stop(time + dur + 0.02);
   }
 
-  public playHitSound(lane: Lane, judgment: Judgment, isBonus: boolean) {
+  private triggerChimeVoice(
+    freq: number,
+    when: number,
+    duration: number,
+    peakGain: number,
+    wave: OscillatorType = 'triangle'
+  ) {
+    if (!this.ctx || !this.sfxGain) return;
+    const osc = this.ctx.createOscillator();
+    osc.type = wave;
+    osc.frequency.setValueAtTime(freq, when);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.001, when);
+    gain.gain.linearRampToValueAtTime(peakGain, when + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.001, when + duration);
+
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.onended = () => {
+      osc.disconnect();
+      gain.disconnect();
+    };
+    osc.start(when);
+    osc.stop(when + duration + 0.015);
+  }
+
+  public playAttemptTone(lane: Lane) {
     if (this.isMuted) return;
     const ctx = this.ensureContext();
     if (!this.sfxGain) return;
 
     const now = ctx.currentTime;
-    const baseFreq = lane === 'LEFT' ? 523.25 : lane === 'MOUTH' ? 659.25 : 783.99;
-    const freq = judgment === 'PERFECT' ? baseFreq : baseFreq * 0.94;
+    const lanePitch: Record<Lane, number> = {
+      LEFT: 260,
+      MOUTH: 310,
+      SMILE: 350,
+      RIGHT: 390,
+    };
+    const startFreq = lanePitch[lane];
 
     const osc = ctx.createOscillator();
-    osc.type = isBonus ? 'triangle' : 'sine';
-    osc.frequency.setValueAtTime(freq, now);
-    osc.frequency.exponentialRampToValueAtTime(freq * (isBonus ? 1.5 : 1.15), now + 0.11);
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(startFreq, now);
+    osc.frequency.exponentialRampToValueAtTime(startFreq * 0.65, now + 0.045);
 
     const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.26, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(0.11, now + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
 
     osc.connect(gain);
     gain.connect(this.sfxGain);
+    osc.onended = () => {
+      osc.disconnect();
+      gain.disconnect();
+    };
     osc.start(now);
-    osc.stop(now + 0.15);
+    osc.stop(now + 0.06);
+  }
+
+  public playHitSound(lane: Lane, judgment: Judgment, isBonus: boolean, combo = 1) {
+    if (this.isMuted) return;
+    const ctx = this.ensureContext();
+    if (!this.sfxGain) return;
+
+    const now = ctx.currentTime;
+    // Bright pentatonic arcade bells mapped per lane
+    const pitchMap: Record<Lane, number> = {
+      LEFT: 587.33, // D5
+      MOUTH: 739.99, // F#5
+      SMILE: 880.0, // A5
+      RIGHT: 1046.5, // C6
+    };
+    // Subtle celebratory pitch lift up to +2 semitones as combo grows
+    const comboLift = 1 + Math.min(8, Math.floor(combo / 5)) * 0.015;
+    const baseFreq = pitchMap[lane] * comboLift;
+
+    if (judgment === 'PERFECT') {
+      // Crisp two-step arcade coin/bell sparkle
+      this.triggerChimeVoice(baseFreq, now, 0.16, 0.36, 'triangle');
+      this.triggerChimeVoice(baseFreq * 2, now, 0.14, 0.14, 'sine');
+      this.triggerChimeVoice(baseFreq * 1.5, now + 0.045, 0.22, 0.34, 'sine');
+    } else if (judgment === 'GREAT') {
+      this.triggerChimeVoice(baseFreq, now, 0.18, 0.34, 'triangle');
+      this.triggerChimeVoice(baseFreq * 2, now, 0.13, 0.12, 'sine');
+    } else {
+      this.triggerChimeVoice(baseFreq * 0.94, now, 0.14, 0.26, 'sine');
+    }
+
+    // Extra golden arpeggio shimmer on bonus notes or every 10-combo milestone
+    if (isBonus || (combo > 0 && combo % 10 === 0)) {
+      this.triggerChimeVoice(baseFreq * 2, now + 0.085, 0.26, 0.28, 'sine');
+    }
+  }
+
+  public playCalibrationClick(): number {
+    const ctx = this.ensureContext();
+    if (!this.sfxGain) return 0;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(987.77, now); // B5 crisp click
+    gain.gain.setValueAtTime(this.isMuted ? 0 : 0.25, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.onended = () => {
+      osc.disconnect();
+      gain.disconnect();
+    };
+    osc.start(now);
+    osc.stop(now + 0.07);
+    return now;
+  }
+
+  public getAudioCurrentTime(): number {
+    return this.ctx ? this.ctx.currentTime : 0;
   }
 
   public playMissSound() {

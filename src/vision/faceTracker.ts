@@ -1,7 +1,6 @@
 import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 import { FacePoint, FaceTelemetry } from '../types/game';
 
-// Outer + inner lip landmarks for clean geometric mouth contour visualization
 const MOUTH_CONTOUR_INDICES = [
   61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267, 0, 37, 39, 40, 185,
 ];
@@ -36,7 +35,6 @@ export class FaceTracker {
   private isInitializing = false;
   private lastVideoTime = -1;
 
-  // Exponential smoothing state
   private smoothMouth = 0;
   private smoothTilt = 0;
   private smoothSmile = 0;
@@ -122,27 +120,30 @@ export class FaceTracker {
       };
     }
 
-    // Eye outer corners: 33 = anatomical right eye (screen left on mirror? Wait: 33 is left side of raw frame -> screen right on mirror; 263 is right side of raw frame -> screen left on mirror)
     const eyeRightAnat = landmarks[33];
     const eyeLeftAnat = landmarks[263];
     const upperInnerLip = landmarks[13];
     const lowerInnerLip = landmarks[14];
+    const mouthLeftCorner = landmarks[61];
+    const mouthRightCorner = landmarks[291];
     const noseTipLm = landmarks[1];
 
     const dx = eyeLeftAnat.x - eyeRightAnat.x;
     const dy = eyeRightAnat.y - eyeLeftAnat.y;
     const interOcular = Math.max(0.04, Math.hypot(dx, eyeLeftAnat.y - eyeRightAnat.y));
 
-    // Head roll angle in radians; normalized so ~30 deg tilt reaches ~0.75
     const rawAngle = Math.atan2(dy, Math.max(0.02, dx));
     const normalizedTilt = Math.max(-1, Math.min(1, rawAngle / 0.58)) - this.tiltOffset;
 
-    // Combine geometric lip separation & jawOpen blendshape for reliable mouth detection
     const lipGap = Math.max(0, lowerInnerLip.y - upperInnerLip.y);
     const geoMouth = Math.max(0, Math.min(1, (lipGap / interOcular - 0.04) * 2.2));
 
+    // Geometric mouth width fallback in case blendshapes are sparse
+    const mouthWidth = Math.hypot(mouthRightCorner.x - mouthLeftCorner.x, mouthRightCorner.y - mouthLeftCorner.y);
+    const geoSmile = Math.max(0, Math.min(1, (mouthWidth / interOcular - 0.58) * 3.0));
+
     let jawOpenBlend = geoMouth;
-    let smileBlend = 0;
+    let smileBlend = geoSmile;
     const categories = result.faceBlendshapes?.[0]?.categories;
     if (categories) {
       let smileL = 0;
@@ -152,17 +153,15 @@ export class FaceTracker {
         else if (c.categoryName === 'mouthSmileLeft') smileL = c.score;
         else if (c.categoryName === 'mouthSmileRight') smileR = c.score;
       }
-      smileBlend = (smileL + smileR) * 0.5;
+      smileBlend = Math.max(geoSmile * 0.4, (smileL + smileR) * 0.5);
     }
 
     const rawMouth = Math.max(0, Math.min(1, jawOpenBlend * 0.65 + geoMouth * 0.45));
 
-    // Snappy exponential smoothing
     this.smoothMouth = this.smoothMouth * 0.35 + rawMouth * 0.65;
     this.smoothTilt = this.smoothTilt * 0.45 + normalizedTilt * 0.55;
-    this.smoothSmile = this.smoothSmile * 0.55 + smileBlend * 0.45;
+    this.smoothSmile = this.smoothSmile * 0.4 + smileBlend * 0.6;
 
-    // Mirror X coordinate so points align directly with mirrored video display
     const mouthPoints: FacePoint[] = MOUTH_CONTOUR_INDICES.map((idx) => ({
       x: 1 - landmarks[idx].x,
       y: landmarks[idx].y,
@@ -172,7 +171,7 @@ export class FaceTracker {
       detected: true,
       mouthOpen: this.smoothMouth,
       headTilt: Math.max(-1, Math.min(1, this.smoothTilt)),
-      smile: this.smoothSmile,
+      smile: Math.max(0, Math.min(1, this.smoothSmile)),
       mouthPoints,
       leftEye: { x: 1 - eyeLeftAnat.x, y: eyeLeftAnat.y },
       rightEye: { x: 1 - eyeRightAnat.x, y: eyeRightAnat.y },

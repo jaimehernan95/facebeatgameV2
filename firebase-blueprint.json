@@ -1,0 +1,267 @@
+{
+  "entities": {
+    "UserMemoryProfile": {
+      "title": "UserMemoryProfile",
+      "description": "Persistent player calibration parameters, facial fitness aggregates, and music taste vector summary.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "mouthThreshold": { "type": "number" },
+        "smileThreshold": { "type": "number" },
+        "tiltThreshold": { "type": "number" },
+        "audioOffsetMs": { "type": "number" },
+        "preferredDifficulty": {
+          "type": "string",
+          "enum": ["chill", "groove", "turbo"]
+        },
+        "preferredDurationSec": { "type": "number" },
+        "totalSessions": { "type": "number" },
+        "bestScore": { "type": "number" },
+        "bestCombo": { "type": "number" },
+        "laneLeftHits": { "type": "number" },
+        "laneLeftTotal": { "type": "number" },
+        "laneMouthHits": { "type": "number" },
+        "laneMouthTotal": { "type": "number" },
+        "laneSmileHits": { "type": "number" },
+        "laneSmileTotal": { "type": "number" },
+        "laneRightHits": { "type": "number" },
+        "laneRightTotal": { "type": "number" },
+        "tasteSummary": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "fitnessCoachTip": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "tasteTags": {
+          "type": "array",
+          "description": "Up to 12 preferred genre/vibe tags"
+        },
+        "tasteCentroid": {
+          "type": "array",
+          "description": "Compact 32-dim normalized music taste embedding vector"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "mouthThreshold",
+        "smileThreshold",
+        "tiltThreshold",
+        "audioOffsetMs",
+        "preferredDifficulty",
+        "preferredDurationSec",
+        "totalSessions",
+        "bestScore",
+        "bestCombo",
+        "laneLeftHits",
+        "laneLeftTotal",
+        "laneMouthHits",
+        "laneMouthTotal",
+        "laneSmileHits",
+        "laneSmileTotal",
+        "laneRightHits",
+        "laneRightTotal",
+        "tasteSummary",
+        "fitnessCoachTip",
+        "tasteTags",
+        "tasteCentroid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "FavoriteTrack": {
+      "title": "FavoriteTrack",
+      "description": "Saved or liked track from Synth, YouTube, YouTube Music, TikTok, Spotify, or Upload with taste vector.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "trackKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["synth", "youtube", "tiktok", "spotify", "upload"]
+        },
+        "sourceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "author": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 150
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "thumbnail": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "bpm": { "type": "number" },
+        "liked": { "type": "boolean" },
+        "playCount": { "type": "number" },
+        "bestScore": { "type": "number" },
+        "tasteVector": {
+          "type": "array",
+          "description": "Compact 32-dim semantic music vector"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "trackKey",
+        "source",
+        "sourceId",
+        "title",
+        "author",
+        "url",
+        "thumbnail",
+        "bpm",
+        "liked",
+        "playCount",
+        "bestScore",
+        "tasteVector",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "FitnessSession": {
+      "title": "FitnessSession",
+      "description": "Immutable round record capturing score, grade, and per-expression facial fitness telemetry.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "trackKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "trackTitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "source": {
+          "type": "string",
+          "enum": ["synth", "youtube", "tiktok", "spotify", "upload"]
+        },
+        "bpm": { "type": "number" },
+        "difficulty": {
+          "type": "string",
+          "enum": ["chill", "groove", "turbo"]
+        },
+        "durationSec": { "type": "number" },
+        "score": { "type": "number" },
+        "accuracy": { "type": "number" },
+        "maxCombo": { "type": "number" },
+        "grade": {
+          "type": "string",
+          "enum": ["S+", "S", "A", "B", "C"]
+        },
+        "leftHits": { "type": "number" },
+        "leftTotal": { "type": "number" },
+        "mouthHits": { "type": "number" },
+        "mouthTotal": { "type": "number" },
+        "smileHits": { "type": "number" },
+        "smileTotal": { "type": "number" },
+        "rightHits": { "type": "number" },
+        "rightTotal": { "type": "number" },
+        "peakMouth": { "type": "number" },
+        "peakSmile": { "type": "number" },
+        "peakTilt": { "type": "number" },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "trackKey",
+        "trackTitle",
+        "source",
+        "bpm",
+        "difficulty",
+        "durationSec",
+        "score",
+        "accuracy",
+        "maxCombo",
+        "grade",
+        "leftHits",
+        "leftTotal",
+        "mouthHits",
+        "mouthTotal",
+        "smileHits",
+        "smileTotal",
+        "rightHits",
+        "rightTotal",
+        "peakMouth",
+        "peakSmile",
+        "peakTilt",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserMemoryProfile" },
+      "description": "Private per-user profile storing calibrated expression thresholds, audio latency offset, running facial fitness stats, and music taste summary."
+    },
+    "/users/{userId}/favoriteTracks/{trackKey}": {
+      "schema": { "$ref": "#/entities/FavoriteTrack" },
+      "description": "User's saved and played tracks across Synth, YouTube, YouTube Music, TikTok, Spotify, and Upload."
+    },
+    "/users/{userId}/sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/FitnessSession" },
+      "description": "Immutable chronological log of completed game rounds and per-lane facial fitness scores."
+    }
+  }
+}
